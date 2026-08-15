@@ -6,12 +6,12 @@ use crate::ast::arena::{
 use crate::ast::expr::{ComparisonOperator, UnaryOperator};
 use crate::ast::names::{SymbolicName, Variable};
 use crate::error::{CypherError, ErrorKind, Result, Span};
+use crate::syntax::SyntaxNode;
+use crate::syntax::ast::AstNode;
 use crate::syntax::ast::expressions::{Atom, BinOp, BinaryExpr, Expression, UnOp, UnaryExpr};
 use crate::syntax::ast::patterns::{
     LabelExprNode as CstLabelExprNode, LabelExpression as CstLabelExpression, NodeLabels,
 };
-use crate::syntax::SyntaxNode;
-use crate::syntax::ast::AstNode;
 
 enum ExpressionTask {
     Visit(Expression),

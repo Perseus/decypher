@@ -1123,6 +1123,15 @@ fn build_expression(e: Expression) -> Result<ast_c::Expression> {
 
 fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(b.syntax());
+    match b.op_kind() {
+        Some(BinOp::Or) => {
+            return build_logical_expr(b, crate::ast::arena::LogicalOperator::Or);
+        }
+        Some(BinOp::And) => {
+            return build_logical_expr(b, crate::ast::arena::LogicalOperator::And);
+        }
+        _ => {}
+    }
     let lhs = b
         .lhs()
         .map(build_expression)
@@ -1167,20 +1176,8 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                 .ok_or_else(|| internal("missing rhs", sp))?;
 
             match b.op_kind() {
-                Some(BinOp::Or) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Or,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
                 Some(BinOp::Xor) => Ok(ast_c::Expression::BinaryOp {
                     op: ast_c::BinaryOperator::Xor,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::And) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::And,
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                     span: sp,
@@ -1332,6 +1329,45 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             }
         }
     }
+}
+
+fn build_logical_expr(
+    binary: BinaryExpr,
+    op: crate::ast::arena::LogicalOperator,
+) -> Result<ast_c::Expression> {
+    let span = span_of(binary.syntax());
+    let cst_op = match op {
+        crate::ast::arena::LogicalOperator::And => BinOp::And,
+        crate::ast::arena::LogicalOperator::Or => BinOp::Or,
+    };
+    let mut operands_reversed = Vec::new();
+    let mut current = Expression::BinaryExpr(binary);
+
+    loop {
+        let Expression::BinaryExpr(binary) = current else {
+            operands_reversed.push(current);
+            break;
+        };
+        if binary.op_kind() != Some(cst_op) {
+            operands_reversed.push(Expression::BinaryExpr(binary));
+            break;
+        }
+        operands_reversed.push(
+            binary
+                .rhs()
+                .ok_or_else(|| internal("missing logical rhs", span))?,
+        );
+        current = binary
+            .lhs()
+            .ok_or_else(|| internal("missing logical lhs", span))?;
+    }
+
+    operands_reversed.reverse();
+    let operands = operands_reversed
+        .into_iter()
+        .map(build_expression)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ast_c::Expression::LogicalOp { op, operands, span })
 }
 
 fn extract_property_key(e: &ast_c::Expression) -> Result<ast_c::PropertyKeyName> {

@@ -1,11 +1,13 @@
 //! Regression tests for expressions that exhausted the legacy AST builder's
 //! default test-thread stack.
 
+use decypher::ast::ToCypher;
 use decypher::ast::arena::{AstArenas, ExprKind, LogicalOperator, build_expression_arena};
 use decypher::parse_cst;
 use decypher::syntax::SyntaxKind;
 use decypher::syntax::ast::AstNode;
 use decypher::syntax::ast::expressions::Expression;
+use decypher::{parse, sema};
 
 const QUERY_PREFIX: &str = "MATCH (n)\nWHERE (";
 const QUERY_SUFFIX: &str = ")\nRETURN n";
@@ -64,4 +66,30 @@ fn build_large_label_predicate_disjunction_iteratively() {
     };
     assert_eq!(*op, LogicalOperator::Or);
     assert_eq!(operands.len(), LABEL_PREDICATE_COUNT);
+}
+
+/// The public AST, semantic analysis, printer, and HIR lowering all consume
+/// the flat logical representation without rebuilding a left-deep OR tree.
+#[test]
+fn public_pipeline_handles_large_label_predicate_disjunction() {
+    let query = large_disjunction_query();
+    let parsed = parse(query.as_str()).expect("public parsing should be stack-safe");
+
+    sema::analyze(&parsed).expect("semantic analysis should be stack-safe");
+    assert_eq!(
+        parsed.to_cypher().matches(" OR ").count(),
+        LABEL_PREDICATE_COUNT - 1
+    );
+
+    #[cfg(feature = "hir")]
+    {
+        let hir = decypher::analyze(parsed).expect("HIR lowering should be stack-safe");
+        assert!(hir.arenas.expressions.iter().any(|(_, expression)| {
+            matches!(
+                &expression.kind,
+                decypher::hir::ExprKind::Logical { operands, .. }
+                    if operands.len() == LABEL_PREDICATE_COUNT
+            )
+        }));
+    }
 }
