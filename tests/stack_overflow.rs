@@ -150,16 +150,32 @@ fn parser_rejects_excessive_label_and_subquery_nesting_without_overflowing() {
 /// They fail with a typed diagnostic until that representation is migrated.
 #[test]
 fn ast_builder_rejects_remaining_recursive_chains_without_overflowing() {
+    let list_index = format!("RETURN xs{}", "[0]".repeat(1_000));
+
+    assert_ast_recursion_limit(&list_index);
+}
+
+/// Left-associative operators, comparisons, and property lookups use ordered
+/// vectors rather than recursive left children throughout the public pipeline.
+#[test]
+fn public_pipeline_handles_large_non_logical_chains() {
     let subtraction = format!("RETURN {}", vec!["1"; 1_000].join(" - "));
+    let comparison = format!("RETURN {}", vec!["1"; 1_000].join(" < "));
     let property = format!(
-        "RETURN n{}",
+        "MATCH (n) RETURN n{}",
         (0..1_000)
             .map(|index| format!(".p{index}"))
             .collect::<String>()
     );
 
-    assert_ast_recursion_limit(&subtraction);
-    assert_ast_recursion_limit(&property);
+    for query in [&subtraction, &comparison, &property] {
+        let parsed = parse(query.as_str()).expect("flat AST construction should succeed");
+        sema::analyze(&parsed).expect("semantic analysis should be stack-safe");
+        assert!(!parsed.to_cypher().is_empty());
+
+        #[cfg(feature = "hir")]
+        decypher::analyze(parsed).expect("HIR lowering should be stack-safe");
+    }
 }
 
 /// Label OR/AND chains use ordered operand vectors in the public AST, so

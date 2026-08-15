@@ -797,10 +797,15 @@ impl ToCypher for Expression {
             Expression::Literal(l) => l.write_cypher(w),
             Expression::Variable(v) => v.write_cypher(w),
             Expression::Parameter(p) => p.write_cypher(w),
-            Expression::PropertyLookup { base, property, .. } => {
+            Expression::PropertyLookup {
+                base, properties, ..
+            } => {
                 base.write_cypher(w)?;
-                write!(w, ".")?;
-                property.write_cypher(w)
+                for property in properties {
+                    write!(w, ".")?;
+                    property.write_cypher(w)?;
+                }
+                Ok(())
             }
             Expression::NodeLabels { base, labels, .. } => {
                 base.write_cypher(w)?;
@@ -816,6 +821,18 @@ impl ToCypher for Expression {
                 op.write_cypher(w)?;
                 write!(w, " ")?;
                 rhs.write_cypher(w)
+            }
+            Expression::BinaryChain {
+                head, operations, ..
+            } => {
+                head.write_cypher(w)?;
+                for (op, rhs) in operations {
+                    write!(w, " ")?;
+                    op.write_cypher(w)?;
+                    write!(w, " ")?;
+                    rhs.write_cypher(w)?;
+                }
+                Ok(())
             }
             Expression::LogicalOp { op, operands, .. } => {
                 let mut operands = operands.iter();

@@ -1389,9 +1389,13 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         Expression::Literal(l) => v.visit_literal(l),
         Expression::Variable(var) => v.visit_variable(var),
         Expression::Parameter(p) => v.visit_parameter(p),
-        Expression::PropertyLookup { base, property, .. } => {
+        Expression::PropertyLookup {
+            base, properties, ..
+        } => {
             v.visit_expression(base);
-            v.visit_property_key_name(property);
+            for property in properties {
+                v.visit_property_key_name(property);
+            }
         }
         Expression::NodeLabels { base, labels, .. } => {
             v.visit_expression(base);
@@ -1403,6 +1407,15 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
             v.visit_binary_operator(op);
             v.visit_expression(lhs);
             v.visit_expression(rhs);
+        }
+        Expression::BinaryChain {
+            head, operations, ..
+        } => {
+            v.visit_expression(head);
+            for (op, rhs) in operations {
+                v.visit_binary_operator(op);
+                v.visit_expression(rhs);
+            }
         }
         Expression::LogicalOp { operands, .. } => {
             for operand in operands {
@@ -1988,9 +2001,13 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::Literal(l) => v.visit_literal(l),
         Expression::Variable(var) => v.visit_variable(var),
         Expression::Parameter(p) => v.visit_parameter(p),
-        Expression::PropertyLookup { base, property, .. } => {
+        Expression::PropertyLookup {
+            base, properties, ..
+        } => {
             v.visit_expression(base);
-            v.visit_property_key_name(property);
+            for property in properties {
+                v.visit_property_key_name(property);
+            }
         }
         Expression::NodeLabels { base, labels, .. } => {
             v.visit_expression(base);
@@ -2001,6 +2018,14 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::BinaryOp { lhs, rhs, .. } => {
             v.visit_expression(lhs);
             v.visit_expression(rhs);
+        }
+        Expression::BinaryChain {
+            head, operations, ..
+        } => {
+            v.visit_expression(head);
+            for (_, rhs) in operations {
+                v.visit_expression(rhs);
+            }
         }
         Expression::LogicalOp { operands, .. } => {
             for operand in operands {

@@ -87,12 +87,12 @@ pub enum Expression {
     Variable(Variable),
     /// A query parameter reference (e.g. `$name`).
     Parameter(Parameter),
-    /// Property lookup: `base.property`.
+    /// Property lookup chain: `base.property1.property2`.
     PropertyLookup {
         /// The expression whose property is accessed.
         base: Box<Expression>,
-        /// The property key name.
-        property: PropertyKeyName,
+        /// Property keys in source order.
+        properties: Vec<PropertyKeyName>,
         /// Byte-offset span of the whole lookup expression.
         span: Span,
     },
@@ -114,6 +114,18 @@ pub enum Expression {
         /// The right-hand side operand.
         rhs: Box<Expression>,
         /// Byte-offset span of the expression.
+        span: Span,
+    },
+    /// A left-associative binary chain stored in source order.
+    ///
+    /// Mixed operators are retained as individual steps, so `a - b + c`
+    /// evaluates exactly as `(a - b) + c` without a left-deep boxed tree.
+    BinaryChain {
+        /// The leftmost operand.
+        head: Box<Expression>,
+        /// Remaining `(operator, right_operand)` steps in source order.
+        operations: Vec<(BinaryOperator, Expression)>,
+        /// Byte-offset span of the complete chain.
         span: Span,
     },
     /// An associative logical operation stored as one flat operand list.

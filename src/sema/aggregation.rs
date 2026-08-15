@@ -262,7 +262,9 @@ fn projection_column_name(item: &ProjectionItem) -> Option<String> {
     }
     match &item.expression {
         Expression::Variable(v) => Some(v.name.name.clone()),
-        Expression::PropertyLookup { property, .. } => Some(property.name.name.clone()),
+        Expression::PropertyLookup { properties, .. } => {
+            properties.last().map(|property| property.name.name.clone())
+        }
         _ => None,
     }
 }
@@ -297,6 +299,9 @@ fn has_aggregate(expr: &Expression) -> bool {
         Expression::BinaryOp {
             op: _, lhs, rhs, ..
         } => has_aggregate(lhs) || has_aggregate(rhs),
+        Expression::BinaryChain {
+            head, operations, ..
+        } => has_aggregate(head) || operations.iter().any(|(_, rhs)| has_aggregate(rhs)),
         Expression::LogicalOp { operands, .. } => operands.iter().any(has_aggregate),
         Expression::UnaryOp { op: _, operand, .. } => has_aggregate(operand),
         Expression::Comparison { lhs, operators, .. } => {

@@ -1057,16 +1057,26 @@ impl<'cfg> LoweringContext<'cfg> {
                 let param_id = self.arenas.parameters.intern(&p.name.name, ParameterId);
                 ExprKind::Parameter(param_id)
             }
-            Expression::PropertyLookup { base, property, .. } => {
-                let base_id = self.lower_expr(base);
-                let key_id = self
-                    .arenas
-                    .property_keys
-                    .intern(&property.name.name, PropertyKeyId);
-                ExprKind::Property {
-                    base: base_id,
-                    key: key_id,
+            Expression::PropertyLookup {
+                base,
+                properties,
+                span,
+            } => {
+                let mut base_id = self.lower_expr(base);
+                for property in properties {
+                    let key_id = self
+                        .arenas
+                        .property_keys
+                        .intern(&property.name.name, PropertyKeyId);
+                    base_id = self.arenas.expressions.alloc(HirExpr {
+                        kind: ExprKind::Property {
+                            base: base_id,
+                            key: key_id,
+                        },
+                        span: *span,
+                    });
                 }
+                return base_id;
             }
             Expression::NodeLabels { base, labels, .. } => {
                 let base_id = self.lower_expr(base);
@@ -1088,6 +1098,22 @@ impl<'cfg> LoweringContext<'cfg> {
                     left,
                     right,
                 }
+            }
+            Expression::BinaryChain {
+                head,
+                operations,
+                span,
+            } => {
+                let mut left = self.lower_expr(head);
+                for (op, rhs) in operations {
+                    let right = self.lower_expr(rhs);
+                    let op = self.lower_binary_op(op);
+                    left = self.arenas.expressions.alloc(HirExpr {
+                        kind: ExprKind::Binary { op, left, right },
+                        span: *span,
+                    });
+                }
+                return left;
             }
             Expression::LogicalOp { op, operands, .. } => {
                 let op = match op {
@@ -1771,7 +1797,10 @@ impl<'cfg> LoweringContext<'cfg> {
     fn infer_alias_name(&self, expr: &Expression) -> String {
         match expr {
             Expression::Variable(v) => v.name.name.clone(),
-            Expression::PropertyLookup { property, .. } => property.name.name.clone(),
+            Expression::PropertyLookup { properties, .. } => properties
+                .last()
+                .map(|property| property.name.name.clone())
+                .unwrap_or_else(|| "expr".to_string()),
             Expression::FunctionCall(fc) => {
                 let name = Self::qualified_function_name(fc);
                 if name.is_empty() {
@@ -1793,6 +1822,12 @@ impl<'cfg> LoweringContext<'cfg> {
             Expression::CountStar { .. } => true,
             Expression::BinaryOp { lhs, rhs, .. } => {
                 self.has_aggregate(lhs) || self.has_aggregate(rhs)
+            }
+            Expression::BinaryChain {
+                head, operations, ..
+            } => {
+                self.has_aggregate(head)
+                    || operations.iter().any(|(_, rhs)| self.has_aggregate(rhs))
             }
             Expression::LogicalOp { operands, .. } => {
                 operands.iter().any(|operand| self.has_aggregate(operand))
@@ -1835,6 +1870,7 @@ fn expr_span(expr: &Expression) -> Span {
         Expression::PropertyLookup { span, .. } => *span,
         Expression::NodeLabels { span, .. } => *span,
         Expression::BinaryOp { span, .. } => *span,
+        Expression::BinaryChain { span, .. } => *span,
         Expression::LogicalOp { span, .. } => *span,
         Expression::UnaryOp { span, .. } => *span,
         Expression::Comparison { span, .. } => *span,

@@ -147,7 +147,11 @@ fn validate_ast_recursion(src: &SourceFile) -> Result<()> {
                 }
                 expression = match expression {
                     Expression::BinaryExpr(binary)
-                        if !matches!(binary.op_kind(), Some(BinOp::And | BinOp::Or)) =>
+                        if !matches!(binary.op_kind(), Some(BinOp::And | BinOp::Or))
+                            && binary.op_kind().is_none_or(|op| {
+                                left_associative_operator(op).is_none()
+                                    && comparison_operator(op).is_none()
+                            }) =>
                     {
                         let Some(lhs) = binary.lhs() else {
                             break;
@@ -160,12 +164,7 @@ fn validate_ast_recursion(src: &SourceFile) -> Result<()> {
                         };
                         operand
                     }
-                    Expression::Atom(Atom::PropertyLookup(property)) => {
-                        let Some(base) = property.base() else {
-                            break;
-                        };
-                        base
-                    }
+                    Expression::Atom(Atom::PropertyLookup(_)) => break,
                     Expression::Atom(Atom::Parenthesized(parenthesized)) => {
                         let Some(inner) = parenthesized.expr() else {
                             break;
@@ -1184,7 +1183,8 @@ fn build_expression(e: Expression) -> Result<ast_c::Expression> {
 
 fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(b.syntax());
-    match b.op_kind() {
+    let op_kind = b.op_kind();
+    match op_kind {
         Some(BinOp::Or) => {
             return build_logical_expr(b, crate::ast::arena::LogicalOperator::Or);
         }
@@ -1192,6 +1192,12 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             return build_logical_expr(b, crate::ast::arena::LogicalOperator::And);
         }
         _ => {}
+    }
+    if op_kind.and_then(left_associative_operator).is_some() {
+        return build_left_associative_expr(b);
+    }
+    if op_kind.and_then(comparison_operator).is_some() {
+        return build_comparison_expr(b);
     }
     let lhs = b
         .lhs()
@@ -1237,96 +1243,10 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                 .ok_or_else(|| internal("missing rhs", sp))?;
 
             match b.op_kind() {
-                Some(BinOp::Xor) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Xor,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::Eq) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Eq, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Ne) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Ne, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Lt) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Lt, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Gt) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Gt, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Le) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Le, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Ge) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Ge, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::RegexMatch) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::RegexMatch, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Add) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Add,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::Sub) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Subtract,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::Mul) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Multiply,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::Div) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Divide,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::Mod) => Ok(ast_c::Expression::BinaryOp {
-                    op: ast_c::BinaryOperator::Modulo,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                    span: sp,
-                }),
                 Some(BinOp::Power) => Ok(ast_c::Expression::BinaryOp {
                     op: ast_c::BinaryOperator::Power,
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
-                    span: sp,
-                }),
-                Some(BinOp::StartsWith) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::StartsWith, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::EndsWith) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::EndsWith, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Contains) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Contains, Box::new(rhs))],
                     span: sp,
                 }),
                 Some(BinOp::In) => Ok(ast_c::Expression::In {
@@ -1382,7 +1302,7 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                 }
                 Some(BinOp::PropertyLookup) => Ok(ast_c::Expression::PropertyLookup {
                     base: Box::new(lhs),
-                    property: extract_property_key(&rhs)?,
+                    properties: vec![extract_property_key(&rhs)?],
                     span: sp,
                 }),
                 None => Err(internal("unknown binary op", sp)),
@@ -1390,6 +1310,100 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             }
         }
     }
+}
+
+fn left_associative_operator(op: BinOp) -> Option<ast_c::BinaryOperator> {
+    match op {
+        BinOp::Xor => Some(ast_c::BinaryOperator::Xor),
+        BinOp::Add => Some(ast_c::BinaryOperator::Add),
+        BinOp::Sub => Some(ast_c::BinaryOperator::Subtract),
+        BinOp::Mul => Some(ast_c::BinaryOperator::Multiply),
+        BinOp::Div => Some(ast_c::BinaryOperator::Divide),
+        BinOp::Mod => Some(ast_c::BinaryOperator::Modulo),
+        _ => None,
+    }
+}
+
+fn comparison_operator(op: BinOp) -> Option<ast_c::ComparisonOperator> {
+    match op {
+        BinOp::Eq => Some(ast_c::ComparisonOperator::Eq),
+        BinOp::Ne => Some(ast_c::ComparisonOperator::Ne),
+        BinOp::Lt => Some(ast_c::ComparisonOperator::Lt),
+        BinOp::Gt => Some(ast_c::ComparisonOperator::Gt),
+        BinOp::Le => Some(ast_c::ComparisonOperator::Le),
+        BinOp::Ge => Some(ast_c::ComparisonOperator::Ge),
+        BinOp::RegexMatch => Some(ast_c::ComparisonOperator::RegexMatch),
+        BinOp::StartsWith => Some(ast_c::ComparisonOperator::StartsWith),
+        BinOp::EndsWith => Some(ast_c::ComparisonOperator::EndsWith),
+        BinOp::Contains => Some(ast_c::ComparisonOperator::Contains),
+        _ => None,
+    }
+}
+
+fn build_left_associative_expr(binary: BinaryExpr) -> Result<ast_c::Expression> {
+    let span = span_of(binary.syntax());
+    let mut operations_reversed = Vec::new();
+    let mut current = Expression::BinaryExpr(binary);
+
+    let head = loop {
+        let Expression::BinaryExpr(binary) = current else {
+            break current;
+        };
+        let Some(op) = binary.op_kind().and_then(left_associative_operator) else {
+            break Expression::BinaryExpr(binary);
+        };
+        let rhs = binary
+            .rhs()
+            .ok_or_else(|| internal("missing binary chain rhs", span))?;
+        operations_reversed.push((op, rhs));
+        current = binary
+            .lhs()
+            .ok_or_else(|| internal("missing binary chain lhs", span))?;
+    };
+
+    operations_reversed.reverse();
+    let operations = operations_reversed
+        .into_iter()
+        .map(|(op, rhs)| Ok((op, build_expression(rhs)?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ast_c::Expression::BinaryChain {
+        head: Box::new(build_expression(head)?),
+        operations,
+        span,
+    })
+}
+
+fn build_comparison_expr(binary: BinaryExpr) -> Result<ast_c::Expression> {
+    let span = span_of(binary.syntax());
+    let mut operators_reversed = Vec::new();
+    let mut current = Expression::BinaryExpr(binary);
+
+    let lhs = loop {
+        let Expression::BinaryExpr(binary) = current else {
+            break current;
+        };
+        let Some(op) = binary.op_kind().and_then(comparison_operator) else {
+            break Expression::BinaryExpr(binary);
+        };
+        let rhs = binary
+            .rhs()
+            .ok_or_else(|| internal("missing comparison rhs", span))?;
+        operators_reversed.push((op, rhs));
+        current = binary
+            .lhs()
+            .ok_or_else(|| internal("missing comparison lhs", span))?;
+    };
+
+    operators_reversed.reverse();
+    let operators = operators_reversed
+        .into_iter()
+        .map(|(op, rhs)| Ok((op, Box::new(build_expression(rhs)?))))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ast_c::Expression::Comparison {
+        lhs: Box::new(build_expression(lhs)?),
+        operators,
+        span,
+    })
 }
 
 fn build_logical_expr(
@@ -1496,30 +1510,45 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
             let proc = build_implicit_procedure_invocation(ipi)?;
             Ok(ast_c::Expression::FunctionCall(proc.name))
         }
-        Atom::PropertyLookup(pl) => {
-            let sp = span_of(pl.syntax());
-            let key = pl
-                .key()
-                .ok_or_else(|| internal("missing property key", sp))?;
-            let base = pl
-                .base()
-                .and_then(|e| build_expression(e).ok())
-                .ok_or_else(|| internal("missing base in property lookup", sp))?;
-            Ok(ast_c::Expression::PropertyLookup {
-                base: Box::new(base),
-                property: ast_c::PropertyKeyName {
-                    name: ast_c::SymbolicName {
-                        name: symbolic_name_text(&key.symbolic_name().ok_or_else(|| {
-                            internal("missing symbolic name", span_of(key.syntax()))
-                        })?),
-                        span: span_of(key.syntax()),
-                    },
-                },
-                span: sp,
-            })
-        }
+        Atom::PropertyLookup(pl) => build_property_lookup_expr(pl),
         Atom::Null(_n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null)),
     }
+}
+
+fn build_property_lookup_expr(property: PropertyLookup) -> Result<ast_c::Expression> {
+    let span = span_of(property.syntax());
+    let mut properties_reversed = Vec::new();
+    let mut current = property;
+
+    let base = loop {
+        let key = current
+            .key()
+            .ok_or_else(|| internal("missing property key", span))?;
+        let symbolic_name = key
+            .symbolic_name()
+            .ok_or_else(|| internal("missing symbolic name", span_of(key.syntax())))?;
+        properties_reversed.push(ast_c::PropertyKeyName {
+            name: ast_c::SymbolicName {
+                name: symbolic_name_text(&symbolic_name),
+                span: span_of(key.syntax()),
+            },
+        });
+
+        match current
+            .base()
+            .ok_or_else(|| internal("missing base in property lookup", span))?
+        {
+            Expression::Atom(Atom::PropertyLookup(previous)) => current = previous,
+            base => break base,
+        }
+    };
+
+    properties_reversed.reverse();
+    Ok(ast_c::Expression::PropertyLookup {
+        base: Box::new(build_expression(base)?),
+        properties: properties_reversed,
+        span,
+    })
 }
 
 fn build_literal(l: Literal) -> Result<ast_c::Expression> {
