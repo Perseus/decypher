@@ -2,112 +2,59 @@
 //!
 //! The HIR avoids heap-allocated strings and heap-indirection by storing
 //! all heap objects inside typed [`Arena`]s and referencing them via
-//! compact integer [`Id`] handles. String-valued entities (label names,
+//! compact integer [`ArenaId`] handles. String-valued entities (label names,
 //! relationship types, etc.) are additionally deduplicated by [`Interner`].
 
 use std::collections::HashMap;
 
-/// A compact arena index.
-///
-/// Arenas use plain `usize` indices wrapped in this newtype so that
-/// different ID spaces (`ScopeId`, `BindingId`, `ExprId`, …) are
-/// type-distinct and cannot be accidentally interchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(pub usize);
-
-impl From<Id> for usize {
-    fn from(id: Id) -> usize {
-        id.0
-    }
-}
+pub use crate::arena::{Arena, ArenaId};
 
 /// Arena index for a [`crate::hir::binding::Scope`].
-pub type ScopeId = Id;
+pub type ScopeId = ArenaId<super::binding::Scope>;
 /// Arena index for a [`crate::hir::binding::Binding`].
-pub type BindingId = Id;
+pub type BindingId = ArenaId<super::binding::Binding>;
 /// Arena index for a [`crate::hir::expr::HirExpr`].
-pub type ExprId = Id;
-/// Arena index for an interned label name.
-pub type LabelId = Id;
-/// Arena index for an interned relationship-type name.
-pub type RelTypeId = Id;
-/// Arena index for an interned property-key name.
-pub type PropertyKeyId = Id;
-/// Arena index for an interned parameter name.
-pub type ParameterId = Id;
-/// Arena index for an interned function name.
-pub type FunctionId = Id;
+pub type ExprId = ArenaId<super::expr::HirExpr>;
 
-/// A growable arena that owns its entries and grants `O(1)` indexed access.
-///
-/// Entries are allocated in FIFO order; the returned [`Id`] can be used to
-/// retrieve the entry later via [`Arena::get`].
-pub struct Arena<T> {
-    entries: Vec<T>,
-}
+macro_rules! interner_id {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name(pub usize);
 
-impl<T: std::fmt::Debug> std::fmt::Debug for Arena<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Arena")
-            .field("len", &self.entries.len())
-            .finish()
-    }
-}
-
-impl<T: Clone> Clone for Arena<T> {
-    fn clone(&self) -> Self {
-        Self {
-            entries: self.entries.clone(),
+        impl $name {
+            /// An invalid sentinel ID.
+            pub const INVALID: Self = Self(usize::MAX);
         }
-    }
-}
 
-impl<T> Arena<T> {
-    /// Create an empty arena.
-    pub fn new() -> Self {
-        Self {
-            entries: Vec::new(),
+        impl From<$name> for usize {
+            fn from(id: $name) -> Self {
+                id.0
+            }
         }
-    }
-
-    /// Allocate `value` in the arena and return its [`Id`].
-    ///
-    /// IDs are assigned sequentially starting from `0`.
-    pub fn alloc(&mut self, value: T) -> Id {
-        let id = Id(self.entries.len());
-        self.entries.push(value);
-        id
-    }
-
-    /// Return a shared reference to the entry at `id`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is out of bounds (i.e. was not produced by this arena).
-    pub fn get(&self, id: Id) -> &T {
-        &self.entries[id.0]
-    }
-
-    /// Return a mutable reference to the entry at `id`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is out of bounds.
-    pub fn get_mut(&mut self, id: Id) -> &mut T {
-        &mut self.entries[id.0]
-    }
-
-    /// Iterate over all `(Id, &T)` pairs in allocation order.
-    pub fn iter(&self) -> impl Iterator<Item = (Id, &T)> {
-        self.entries.iter().enumerate().map(|(i, v)| (Id(i), v))
-    }
+    };
 }
 
-impl<T> Default for Arena<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+interner_id!(
+    /// Arena index for an interned label name.
+    LabelId
+);
+interner_id!(
+    /// Arena index for an interned relationship-type name.
+    RelTypeId
+);
+interner_id!(
+    /// Arena index for an interned property-key name.
+    PropertyKeyId
+);
+interner_id!(
+    /// Arena index for an interned parameter name.
+    ParameterId
+);
+interner_id!(
+    /// Arena index for an interned function name.
+    FunctionId
+);
 
 /// A string-keyed interner that maps names to compact typed IDs.
 ///

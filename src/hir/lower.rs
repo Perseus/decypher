@@ -30,7 +30,9 @@ use crate::ast::query::{
 };
 use crate::error::{Diagnostics, Span};
 
-use super::arena::{BindingId, ExprId, Id, LabelId, PropertyKeyId, RelTypeId, ScopeId};
+use super::arena::{
+    BindingId, ExprId, FunctionId, LabelId, ParameterId, PropertyKeyId, RelTypeId, ScopeId,
+};
 use super::binding::{Binding, BindingKind, Scope};
 use super::config::LowerConfig;
 use super::expr::{
@@ -157,7 +159,7 @@ impl LoweringScopeStack {
         span: Span,
     ) -> BindingId {
         let id = arenas.bindings.alloc(Binding {
-            id: Id(usize::MAX), // temporary, updated below
+            id: BindingId::INVALID, // temporary, updated below
             name: name.to_string(),
             kind,
             introduced_at: span,
@@ -532,7 +534,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 match operator {
                     SetOperator::Assign => HirSetItem::SetProperty { target, value: val },
                     SetOperator::Add => HirSetItem::MergeProperties {
-                        entity: Id(usize::MAX), // placeholder - need property base
+                        entity: BindingId::INVALID, // placeholder - need property base
                         value: val,
                     },
                 }
@@ -556,7 +558,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 let node = self.resolve_or_bind_variable(variable);
                 let label_ids: Vec<LabelId> = labels
                     .iter()
-                    .map(|l| self.arenas.labels.intern(&l.name, Id))
+                    .map(|l| self.arenas.labels.intern(&l.name, LabelId))
                     .collect();
                 HirSetItem::SetLabels {
                     node,
@@ -575,7 +577,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     let node = self.resolve_or_bind_variable(variable);
                     let label_ids: Vec<LabelId> = labels
                         .iter()
-                        .map(|l| self.arenas.labels.intern(&l.name, Id))
+                        .map(|l| self.arenas.labels.intern(&l.name, LabelId))
                         .collect();
                     HirRemoveItem::Labels {
                         node,
@@ -635,7 +637,7 @@ impl<'cfg> LoweringContext<'cfg> {
                                 let node = self.resolve_or_bind_variable(variable);
                                 let label_ids: Vec<LabelId> = labels
                                     .iter()
-                                    .map(|l| self.arenas.labels.intern(&l.name, Id))
+                                    .map(|l| self.arenas.labels.intern(&l.name, LabelId))
                                     .collect();
                                 HirRemoveItem::Labels {
                                     node,
@@ -703,16 +705,16 @@ impl<'cfg> LoweringContext<'cfg> {
                             let fid = self
                                 .arenas
                                 .functions
-                                .intern_with_display(&key, &display, Id);
+                                .intern_with_display(&key, &display, FunctionId);
                             let a = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
                             (fid, a, fc.distinct)
                         }
                         Expression::CountStar { .. } => {
-                            let fid = self.arenas.functions.intern("COUNT", Id);
+                            let fid = self.arenas.functions.intern("COUNT", FunctionId);
                             (fid, vec![], false)
                         }
                         _ => {
-                            let fid = self.arenas.functions.intern("UNKNOWN", Id);
+                            let fid = self.arenas.functions.intern("UNKNOWN", FunctionId);
                             (fid, vec![], false)
                         }
                     };
@@ -867,16 +869,16 @@ impl<'cfg> LoweringContext<'cfg> {
                                 let fid = self
                                     .arenas
                                     .functions
-                                    .intern_with_display(&key, &display, Id);
+                                    .intern_with_display(&key, &display, FunctionId);
                                 let a = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
                                 (fid, a, fc.distinct)
                             }
                             Expression::CountStar { .. } => {
-                                let fid = self.arenas.functions.intern("COUNT", Id);
+                                let fid = self.arenas.functions.intern("COUNT", FunctionId);
                                 (fid, vec![], false)
                             }
                             _ => {
-                                let fid = self.arenas.functions.intern("UNKNOWN", Id);
+                                let fid = self.arenas.functions.intern("UNKNOWN", FunctionId);
                                 (fid, vec![], false)
                             }
                         };
@@ -999,7 +1001,7 @@ impl<'cfg> LoweringContext<'cfg> {
         let procedure = self
             .arenas
             .functions
-            .intern_with_display(&key, &display, Id);
+            .intern_with_display(&key, &display, FunctionId);
         let args = proc
             .name
             .arguments
@@ -1027,7 +1029,10 @@ impl<'cfg> LoweringContext<'cfg> {
                         .entries
                         .iter()
                         .map(|(key, val)| {
-                            let property_key = self.arenas.property_keys.intern(&key.name.name, Id);
+                            let property_key = self
+                                .arenas
+                                .property_keys
+                                .intern(&key.name.name, PropertyKeyId);
                             let expr_id = self.lower_expr(val);
                             (property_key, expr_id)
                         })
@@ -1043,16 +1048,19 @@ impl<'cfg> LoweringContext<'cfg> {
                         name: v.name.name.clone(),
                         span: v.name.span,
                     });
-                    ExprKind::Binding(Id(usize::MAX))
+                    ExprKind::Binding(BindingId::INVALID)
                 }
             },
             Expression::Parameter(p) => {
-                let param_id = self.arenas.parameters.intern(&p.name.name, Id);
+                let param_id = self.arenas.parameters.intern(&p.name.name, ParameterId);
                 ExprKind::Parameter(param_id)
             }
             Expression::PropertyLookup { base, property, .. } => {
                 let base_id = self.lower_expr(base);
-                let key_id = self.arenas.property_keys.intern(&property.name.name, Id);
+                let key_id = self
+                    .arenas
+                    .property_keys
+                    .intern(&property.name.name, PropertyKeyId);
                 ExprKind::Property {
                     base: base_id,
                     key: key_id,
@@ -1146,7 +1154,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 let func_id = self
                     .arenas
                     .functions
-                    .intern_with_display(&key, &display, Id);
+                    .intern_with_display(&key, &display, FunctionId);
                 let args = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
                 ExprKind::FunctionCall {
                     function: func_id,
@@ -1268,11 +1276,17 @@ impl<'cfg> LoweringContext<'cfg> {
                             HirMapProjectionItem::AllProperties
                         }
                         MapProjectionItem::PropertyLookup { property } => {
-                            let key = self.arenas.property_keys.intern(&property.name.name, Id);
+                            let key = self
+                                .arenas
+                                .property_keys
+                                .intern(&property.name.name, PropertyKeyId);
                             HirMapProjectionItem::PropertyLookup { key }
                         }
                         MapProjectionItem::Literal { key, value } => {
-                            let k = self.arenas.property_keys.intern(&key.name.name, Id);
+                            let k = self
+                                .arenas
+                                .property_keys
+                                .intern(&key.name.name, PropertyKeyId);
                             let v = self.lower_expr(value);
                             HirMapProjectionItem::Literal { key: k, value: v }
                         }
@@ -1636,7 +1650,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_label_expression_id(&mut self, expr: &LabelExpression) -> LabelId {
         match expr {
-            LabelExpression::Static(sym) => self.arenas.labels.intern(&sym.name, Id),
+            LabelExpression::Static(sym) => self.arenas.labels.intern(&sym.name, LabelId),
             LabelExpression::Dynamic { span, .. }
             | LabelExpression::Or { span, .. }
             | LabelExpression::And { span, .. }
@@ -1646,7 +1660,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     feature: "dynamic label expression".to_string(),
                     span: *span,
                 });
-                Id(usize::MAX)
+                LabelId::INVALID
             }
         }
     }
@@ -1654,7 +1668,7 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_label_expression_to_rel_types(&mut self, expr: &LabelExpression) -> Vec<RelTypeId> {
         match expr {
             LabelExpression::Static(sym) => {
-                vec![self.arenas.relationship_types.intern(&sym.name, Id)]
+                vec![self.arenas.relationship_types.intern(&sym.name, RelTypeId)]
             }
             LabelExpression::Or { lhs, rhs, .. } => {
                 let mut types = self.lower_label_expression_to_rel_types(lhs);
@@ -1681,7 +1695,10 @@ impl<'cfg> LoweringContext<'cfg> {
                     .entries
                     .iter()
                     .map(|(key, val)| {
-                        let k = self.arenas.property_keys.intern(&key.name.name, Id);
+                        let k = self
+                            .arenas
+                            .property_keys
+                            .intern(&key.name.name, PropertyKeyId);
                         let v = self.lower_expr(val);
                         (k, v)
                     })
@@ -1692,7 +1709,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     .alloc(HirExpr { kind, span: m.span })
             }
             Properties::Parameter(p) => {
-                let param_id = self.arenas.parameters.intern(&p.name.name, Id);
+                let param_id = self.arenas.parameters.intern(&p.name.name, ParameterId);
                 let kind = ExprKind::Parameter(param_id);
                 self.arenas
                     .expressions
