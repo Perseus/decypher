@@ -12,6 +12,8 @@ use super::names::{PropertyKeyName, SymbolicName, Variable};
 use super::pattern::{Pattern, RelationshipsPattern};
 use super::query::RegularQuery;
 
+pub use super::build_arena::build_expression_arena;
+
 /// An ID for an expression in [`AstArenas::expressions`].
 pub type ExprId = ArenaId<ExpressionNode>;
 

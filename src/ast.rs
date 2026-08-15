@@ -19,6 +19,7 @@
 //! | [`visit`] | [`visit::Visit`] / [`visit::VisitMut`] traits for traversal |
 
 pub mod arena;
+mod build_arena;
 pub(crate) mod build_cst;
 pub mod clause;
 pub mod expr;
