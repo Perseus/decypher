@@ -139,6 +139,14 @@ impl<T: Clone> Clone for Arena<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for Arena<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl<T: Eq> Eq for Arena<T> {}
+
 impl<T> Default for Arena<T> {
     fn default() -> Self {
         Self::new()

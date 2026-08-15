@@ -425,6 +425,7 @@ impl<'cfg> LoweringContext<'cfg> {
             .copied()
             .collect();
         let query_ast = Query {
+            arenas: crate::ast::arena::AstArenas::new(),
             statements: vec![QueryBody::Regular(c.query.clone())],
             span: Span::new(0, 0),
         };
@@ -1390,6 +1391,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     .flat_map(|m| m.values().copied())
                     .collect();
                 let query_ast = Query {
+                    arenas: crate::ast::arena::AstArenas::new(),
                     statements: vec![QueryBody::Regular((**rq).clone())],
                     span: Span::new(0, 0),
                 };
@@ -1415,6 +1417,7 @@ impl<'cfg> LoweringContext<'cfg> {
             .flat_map(|m| m.values().copied())
             .collect();
         let query_ast = Query {
+            arenas: crate::ast::arena::AstArenas::new(),
             statements: vec![QueryBody::Regular(query.clone())],
             span: Span::new(0, 0),
         };
@@ -1438,6 +1441,7 @@ impl<'cfg> LoweringContext<'cfg> {
             .flat_map(|m| m.values().copied())
             .collect();
         let query_ast = Query {
+            arenas: crate::ast::arena::AstArenas::new(),
             statements: vec![QueryBody::Regular(query.clone())],
             span: Span::new(0, 0),
         };

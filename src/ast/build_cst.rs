@@ -86,6 +86,7 @@ pub fn build_source_file(src: SourceFile) -> Result<ast_c::Query> {
     }
 
     Ok(ast_c::Query {
+        arenas: crate::ast::arena::AstArenas::new(),
         statements,
         span: sp,
     })
