@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use crate::ast::arena::LogicalOperator;
 use crate::ast::clause::{
     Create, Delete, Foreach, ForeachUpdate, LoadCsv, Match, Merge, Remove, RemoveItem, Return, Set,
     SetItem, SetOperator, Unwind, With,
@@ -39,7 +40,7 @@ use super::expr::{
     BinaryOp, CaseAlternative as HirCaseAlternative, CaseExpr as HirCaseExpr, CollectSubquery,
     CollectionQuantifier, ComparisonOperator as HirComparisonOperator, CountSubquery,
     ExistsSubquery, ExprKind, HirExpr, ListComprehension as HirListComprehension,
-    Literal as HirLiteral, MapProjectionItem as HirMapProjectionItem,
+    Literal as HirLiteral, LogicalOp, MapProjectionItem as HirMapProjectionItem,
     PatternComprehension as HirPatternComprehension, UnaryOp,
 };
 use super::ops::{
@@ -1088,6 +1089,17 @@ impl<'cfg> LoweringContext<'cfg> {
                     right,
                 }
             }
+            Expression::LogicalOp { op, operands, .. } => {
+                let op = match op {
+                    LogicalOperator::And => LogicalOp::And,
+                    LogicalOperator::Or => LogicalOp::Or,
+                };
+                let operands = operands
+                    .iter()
+                    .map(|operand| self.lower_expr(operand))
+                    .collect();
+                ExprKind::Logical { op, operands }
+            }
             Expression::UnaryOp { op, operand, .. } => {
                 let expr = self.lower_expr(operand);
                 let hir_op = match op {
@@ -1326,8 +1338,6 @@ impl<'cfg> LoweringContext<'cfg> {
             BinaryOperator::Divide => BinaryOp::Divide,
             BinaryOperator::Modulo => BinaryOp::Modulo,
             BinaryOperator::Power => BinaryOp::Power,
-            BinaryOperator::And => BinaryOp::And,
-            BinaryOperator::Or => BinaryOp::Or,
             BinaryOperator::Xor => BinaryOp::Xor,
         }
     }
@@ -1785,6 +1795,9 @@ impl<'cfg> LoweringContext<'cfg> {
             Expression::BinaryOp { lhs, rhs, .. } => {
                 self.has_aggregate(lhs) || self.has_aggregate(rhs)
             }
+            Expression::LogicalOp { operands, .. } => {
+                operands.iter().any(|operand| self.has_aggregate(operand))
+            }
             Expression::UnaryOp { operand, .. } => self.has_aggregate(operand),
             Expression::Comparison { lhs, operators, .. } => {
                 self.has_aggregate(lhs) || operators.iter().any(|(_, rhs)| self.has_aggregate(rhs))
@@ -1823,6 +1836,7 @@ fn expr_span(expr: &Expression) -> Span {
         Expression::PropertyLookup { span, .. } => *span,
         Expression::NodeLabels { span, .. } => *span,
         Expression::BinaryOp { span, .. } => *span,
+        Expression::LogicalOp { span, .. } => *span,
         Expression::UnaryOp { span, .. } => *span,
         Expression::Comparison { span, .. } => *span,
         Expression::ListIndex { span, .. } => *span,

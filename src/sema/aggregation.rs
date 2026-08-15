@@ -297,6 +297,7 @@ fn has_aggregate(expr: &Expression) -> bool {
         Expression::BinaryOp {
             op: _, lhs, rhs, ..
         } => has_aggregate(lhs) || has_aggregate(rhs),
+        Expression::LogicalOp { operands, .. } => operands.iter().any(has_aggregate),
         Expression::UnaryOp { op: _, operand, .. } => has_aggregate(operand),
         Expression::Comparison { lhs, operators, .. } => {
             has_aggregate(lhs) || operators.iter().any(|(_, rhs)| has_aggregate(rhs))

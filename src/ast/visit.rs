@@ -1403,6 +1403,11 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
             v.visit_expression(lhs);
             v.visit_expression(rhs);
         }
+        Expression::LogicalOp { operands, .. } => {
+            for operand in operands {
+                v.visit_expression(operand);
+            }
+        }
         Expression::UnaryOp { op, operand, .. } => {
             v.visit_unary_operator(op);
             v.visit_expression(operand);
@@ -1994,6 +1999,11 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::BinaryOp { lhs, rhs, .. } => {
             v.visit_expression(lhs);
             v.visit_expression(rhs);
+        }
+        Expression::LogicalOp { operands, .. } => {
+            for operand in operands {
+                v.visit_expression(operand);
+            }
         }
         Expression::UnaryOp { operand, .. } => {
             v.visit_expression(operand);
