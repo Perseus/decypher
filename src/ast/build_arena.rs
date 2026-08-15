@@ -6,12 +6,12 @@ use crate::ast::arena::{
 use crate::ast::expr::{ComparisonOperator, UnaryOperator};
 use crate::ast::names::{SymbolicName, Variable};
 use crate::error::{CypherError, ErrorKind, Result, Span};
+use crate::syntax::SyntaxNode;
+use crate::syntax::ast::AstNode;
 use crate::syntax::ast::expressions::{Atom, BinOp, BinaryExpr, Expression, UnOp, UnaryExpr};
 use crate::syntax::ast::patterns::{
     LabelExprNode as CstLabelExprNode, LabelExpression as CstLabelExpression, NodeLabels,
 };
-use crate::syntax::SyntaxNode;
-use crate::syntax::ast::AstNode;
 
 enum ExpressionTask {
     Visit(Expression),
@@ -21,6 +21,11 @@ enum ExpressionTask {
     },
     FinishLogical {
         op: LogicalOperator,
+        operand_count: usize,
+        span: Span,
+    },
+    FinishComparison {
+        operators: Vec<ComparisonOperator>,
         operand_count: usize,
         span: Span,
     },
@@ -94,6 +99,7 @@ pub fn build_expression_arena(expression: Expression, arenas: &mut AstArenas) ->
                 let lhs = results
                     .pop()
                     .ok_or_else(|| internal("missing binary lhs result", span))?;
+                let span = span_from_lhs(arenas, lhs, span);
                 let kind = finish_binary(op, lhs, rhs, span)?;
                 results.push(arenas.alloc_expression(kind, span));
             }
@@ -103,7 +109,23 @@ pub fn build_expression_arena(expression: Expression, arenas: &mut AstArenas) ->
                 span,
             } => {
                 let operands = take_results(&mut results, operand_count, span)?;
+                let span = span_from_first(arenas, &operands, span)?;
                 results.push(arenas.alloc_expression(ExprKind::Logical { op, operands }, span));
+            }
+            ExpressionTask::FinishComparison {
+                operators,
+                operand_count,
+                span,
+            } => {
+                let operands = take_results(&mut results, operand_count, span)?;
+                let span = span_from_first(arenas, &operands, span)?;
+                let mut operands = operands.into_iter();
+                let lhs = operands
+                    .next()
+                    .ok_or_else(|| internal("missing comparison lhs result", span))?;
+                let operators = operators.into_iter().zip(operands).collect();
+                results
+                    .push(arenas.alloc_expression(ExprKind::Comparison { lhs, operators }, span));
             }
             ExpressionTask::FinishUnary { op, span } => {
                 let operand = results
@@ -121,6 +143,7 @@ pub fn build_expression_arena(expression: Expression, arenas: &mut AstArenas) ->
                 let base = results
                     .pop()
                     .ok_or_else(|| internal("missing label predicate base", span))?;
+                let span = span_from_lhs(arenas, base, span);
                 let labels = labels
                     .into_iter()
                     .map(|label| build_label_expression_arena(label, arenas))
@@ -149,6 +172,17 @@ fn schedule_binary(binary: BinaryExpr, tasks: &mut Vec<ExpressionTask>) -> Resul
         let operands = collect_logical_operands(binary, op)?;
         tasks.push(ExpressionTask::FinishLogical {
             op: logical_op,
+            operand_count: operands.len(),
+            span,
+        });
+        tasks.extend(operands.into_iter().rev().map(ExpressionTask::Visit));
+        return Ok(());
+    }
+
+    if comparison_operator(op).is_some() {
+        let (operands, operators) = collect_comparison_operands(binary)?;
+        tasks.push(ExpressionTask::FinishComparison {
+            operators,
             operand_count: operands.len(),
             span,
         });
@@ -242,6 +276,55 @@ fn logical_operator(op: BinOp) -> Option<LogicalOperator> {
     }
 }
 
+fn comparison_operator(op: BinOp) -> Option<ComparisonOperator> {
+    match op {
+        BinOp::Eq => Some(ComparisonOperator::Eq),
+        BinOp::Ne => Some(ComparisonOperator::Ne),
+        BinOp::Lt => Some(ComparisonOperator::Lt),
+        BinOp::Gt => Some(ComparisonOperator::Gt),
+        BinOp::Le => Some(ComparisonOperator::Le),
+        BinOp::Ge => Some(ComparisonOperator::Ge),
+        BinOp::RegexMatch => Some(ComparisonOperator::RegexMatch),
+        BinOp::StartsWith => Some(ComparisonOperator::StartsWith),
+        BinOp::EndsWith => Some(ComparisonOperator::EndsWith),
+        BinOp::Contains => Some(ComparisonOperator::Contains),
+        _ => None,
+    }
+}
+
+fn collect_comparison_operands(
+    binary: BinaryExpr,
+) -> Result<(Vec<Expression>, Vec<ComparisonOperator>)> {
+    let span = span_of(binary.syntax());
+    let mut operands_reversed = Vec::new();
+    let mut operators_reversed = Vec::new();
+    let mut current = Expression::BinaryExpr(binary);
+
+    loop {
+        let Expression::BinaryExpr(binary) = current else {
+            operands_reversed.push(current);
+            break;
+        };
+        let Some(op) = binary.op_kind().and_then(comparison_operator) else {
+            operands_reversed.push(Expression::BinaryExpr(binary));
+            break;
+        };
+        operands_reversed.push(
+            binary
+                .rhs()
+                .ok_or_else(|| internal("missing comparison rhs", span))?,
+        );
+        operators_reversed.push(op);
+        current = binary
+            .lhs()
+            .ok_or_else(|| internal("missing comparison lhs", span))?;
+    }
+
+    operands_reversed.reverse();
+    operators_reversed.reverse();
+    Ok((operands_reversed, operators_reversed))
+}
+
 fn finish_binary(op: BinOp, lhs: ExprId, rhs: ExprId, span: Span) -> Result<ExprKind> {
     let kind = match op {
         BinOp::Xor => ExprKind::Binary {
@@ -279,16 +362,6 @@ fn finish_binary(op: BinOp, lhs: ExprId, rhs: ExprId, span: Span) -> Result<Expr
             lhs,
             rhs,
         },
-        BinOp::Eq => comparison(lhs, ComparisonOperator::Eq, rhs),
-        BinOp::Ne => comparison(lhs, ComparisonOperator::Ne, rhs),
-        BinOp::Lt => comparison(lhs, ComparisonOperator::Lt, rhs),
-        BinOp::Gt => comparison(lhs, ComparisonOperator::Gt, rhs),
-        BinOp::Le => comparison(lhs, ComparisonOperator::Le, rhs),
-        BinOp::Ge => comparison(lhs, ComparisonOperator::Ge, rhs),
-        BinOp::RegexMatch => comparison(lhs, ComparisonOperator::RegexMatch, rhs),
-        BinOp::StartsWith => comparison(lhs, ComparisonOperator::StartsWith, rhs),
-        BinOp::EndsWith => comparison(lhs, ComparisonOperator::EndsWith, rhs),
-        BinOp::Contains => comparison(lhs, ComparisonOperator::Contains, rhs),
         BinOp::In => ExprKind::In { lhs, rhs },
         unsupported => {
             return Err(internal(
@@ -298,13 +371,6 @@ fn finish_binary(op: BinOp, lhs: ExprId, rhs: ExprId, span: Span) -> Result<Expr
         }
     };
     Ok(kind)
-}
-
-fn comparison(lhs: ExprId, op: ComparisonOperator, rhs: ExprId) -> ExprKind {
-    ExprKind::Comparison {
-        lhs,
-        operators: vec![(op, rhs)],
-    }
 }
 
 fn build_label_expression_arena(
@@ -421,6 +487,18 @@ fn symbolic_name_text(symbolic_name: &crate::syntax::ast::top_level::SymbolicNam
 fn span_of(node: &SyntaxNode) -> Span {
     let range = node.text_range();
     Span::new(range.start().into(), range.end().into())
+}
+
+fn span_from_lhs(arenas: &AstArenas, lhs: ExprId, tail: Span) -> Span {
+    Span::new(arenas.expressions.get(lhs).span.start, tail.end)
+}
+
+fn span_from_first(arenas: &AstArenas, operands: &[ExprId], tail: Span) -> Result<Span> {
+    let lhs = operands
+        .first()
+        .copied()
+        .ok_or_else(|| internal("missing first expression operand", tail))?;
+    Ok(span_from_lhs(arenas, lhs, tail))
 }
 
 fn internal(message: &str, span: Span) -> CypherError {

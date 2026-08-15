@@ -2,6 +2,7 @@
 //! default test-thread stack.
 
 use decypher::ast::arena::{AstArenas, ExprKind, LogicalOperator, build_expression_arena};
+use decypher::ast::expr::ComparisonOperator;
 use decypher::parse_cst;
 use decypher::syntax::SyntaxKind;
 use decypher::syntax::ast::AstNode;
@@ -64,4 +65,44 @@ fn build_large_label_predicate_disjunction_iteratively() {
     };
     assert_eq!(*op, LogicalOperator::Or);
     assert_eq!(operands.len(), LABEL_PREDICATE_COUNT);
+    let span = arenas.expressions.get(root).span;
+    assert_eq!(
+        &query[span.start..span.end],
+        query
+            .strip_prefix(QUERY_PREFIX)
+            .and_then(|query| query.strip_suffix(QUERY_SUFFIX))
+            .expect("generated query should contain its predicate")
+    );
+}
+
+/// The iterative builder stores one comparison node for a complete comparison
+/// chain, preserving the leftmost operand and every operator in source order.
+#[test]
+fn build_comparison_chain_as_one_arena_node() {
+    let query = "RETURN a < b <= c";
+    let parsed = parse_cst(query);
+    let cst_root = parsed
+        .tree
+        .descendants()
+        .filter(|node| node.kind() == SyntaxKind::COMPARISON_EXPR)
+        .last()
+        .and_then(Expression::cast)
+        .expect("query should contain a comparison expression");
+    let mut arenas = AstArenas::new();
+
+    let root = build_expression_arena(cst_root, &mut arenas)
+        .expect("comparison construction should succeed");
+    let node = arenas.expressions.get(root);
+    let ExprKind::Comparison { lhs, operators } = &node.kind else {
+        panic!("expected one comparison expression");
+    };
+
+    let ExprKind::Variable(lhs) = &arenas.expressions.get(*lhs).kind else {
+        panic!("expected the leftmost operand to be a variable");
+    };
+    assert_eq!(lhs.name.name, "a");
+    assert_eq!(operators.len(), 2);
+    assert_eq!(operators[0].0, ComparisonOperator::Lt);
+    assert_eq!(operators[1].0, ComparisonOperator::Le);
+    assert_eq!(&query[node.span.start..node.span.end], "a < b <= c");
 }
