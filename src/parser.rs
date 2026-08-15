@@ -20,6 +20,13 @@ use crate::syntax::{CypherLang, SyntaxKind, SyntaxNode};
 use rowan::{GreenNodeBuilder, Language};
 use std::borrow::Cow;
 
+/// Maximum number of recursive grammar entries that may be active at once.
+///
+/// Flat expression chains do not consume this budget. It exists for syntax
+/// that is genuinely nested, such as parentheses, unary operators, nested
+/// patterns, label groups, and subqueries.
+pub const RECURSION_LIMIT: usize = 128;
+
 /// Result of parsing: a CST and any diagnostics.
 pub struct Parse {
     pub tree: SyntaxNode,
@@ -63,6 +70,11 @@ pub(crate) struct Parser<'a> {
     errors: Vec<CypherError>,
     /// The byte offset of the current token within `input`.
     byte_pos: usize,
+    /// Number of guarded recursive grammar entries currently active.
+    recursion_depth: usize,
+    /// Prevents a malformed suffix from emitting the same limit diagnostic
+    /// repeatedly while the active calls unwind.
+    recursion_limit_reported: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -81,6 +93,55 @@ impl<'a> Parser<'a> {
             current_len,
             errors: Vec::new(),
             byte_pos: 0,
+            recursion_depth: 0,
+            recursion_limit_reported: false,
+        }
+    }
+
+    /// Enter a grammar function that can recurse through user input.
+    ///
+    /// The caller must pair every `true` result with [`Self::leave_recursion`].
+    /// When the limit is reached, this method records one typed diagnostic and
+    /// consumes the current token so error recovery can continue iteratively.
+    pub(crate) fn enter_recursion(&mut self) -> bool {
+        if self.recursion_depth >= RECURSION_LIMIT {
+            if !self.recursion_limit_reported {
+                let start = self.byte_pos;
+                let end = start + self.current_len;
+                self.errors.push(CypherError {
+                    kind: ErrorKind::RecursionLimitExceeded {
+                        phase: "parser",
+                        limit: RECURSION_LIMIT,
+                    },
+                    span: Span::new(start, end),
+                    source_label: None,
+                    notes: vec![Note {
+                        span: Span::new(start, end),
+                        message: Cow::Borrowed(
+                            "reduce expression, label, pattern, or subquery nesting",
+                        ),
+                        level: NoteLevel::Help,
+                    }],
+                    source: None,
+                });
+                self.recursion_limit_reported = true;
+            }
+            self.start_node(SyntaxKind::ERROR);
+            self.bump();
+            self.builder.finish_node();
+            return false;
+        }
+
+        self.recursion_depth += 1;
+        true
+    }
+
+    /// Leave a guarded recursive grammar function.
+    pub(crate) fn leave_recursion(&mut self) {
+        debug_assert!(self.recursion_depth > 0);
+        self.recursion_depth -= 1;
+        if self.recursion_depth == 0 {
+            self.recursion_limit_reported = false;
         }
     }
 

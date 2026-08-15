@@ -7,7 +7,7 @@ use decypher::parse_cst;
 use decypher::syntax::SyntaxKind;
 use decypher::syntax::ast::AstNode;
 use decypher::syntax::ast::expressions::Expression;
-use decypher::{parse, sema};
+use decypher::{ErrorKind, parse, sema};
 
 const QUERY_PREFIX: &str = "MATCH (n)\nWHERE (";
 const QUERY_SUFFIX: &str = ")\nRETURN n";
@@ -92,4 +92,74 @@ fn public_pipeline_handles_large_label_predicate_disjunction() {
             )
         }));
     }
+}
+
+fn assert_parser_recursion_limit(query: &str) {
+    let parsed = parse_cst(query);
+    assert!(parsed.errors.iter().any(|error| matches!(
+        error.kind,
+        ErrorKind::RecursionLimitExceeded {
+            phase: "parser",
+            ..
+        }
+    )));
+}
+
+fn assert_ast_recursion_limit(query: &str) {
+    let cst = parse_cst(query);
+    assert!(cst.errors.is_empty(), "CST errors: {:?}", cst.errors);
+    let error = parse(query).expect_err("the legacy AST recursion budget should reject the query");
+    assert!(matches!(
+        error.kind,
+        ErrorKind::RecursionLimitExceeded {
+            phase: "AST builder",
+            ..
+        }
+    ));
+}
+
+/// Truly nested syntax is rejected before the recursive Pratt parser can
+/// exhaust the native stack.
+#[test]
+fn parser_rejects_excessive_expression_nesting_without_overflowing() {
+    let depth = 1_000;
+    let parentheses = format!("RETURN {}1{}", "(".repeat(depth), ")".repeat(depth));
+    let unary = format!("RETURN {}true", "NOT ".repeat(depth));
+    let power = format!("RETURN {}", vec!["1"; depth].join(" ^ "));
+
+    assert_parser_recursion_limit(&parentheses);
+    assert_parser_recursion_limit(&unary);
+    assert_parser_recursion_limit(&power);
+}
+
+/// Recursive grammar families outside Pratt expressions share the same
+/// bounded counter.
+#[test]
+fn parser_rejects_excessive_label_and_subquery_nesting_without_overflowing() {
+    let labels = format!("MATCH (n:{}Label) RETURN n", "!".repeat(1_000));
+    let unions = format!(
+        "CALL {{ {} }} RETURN 1",
+        vec!["RETURN 1"; 1_000].join(" UNION ")
+    );
+
+    assert_parser_recursion_limit(&labels);
+    assert_parser_recursion_limit(&unions);
+}
+
+/// Flat non-logical CST chains still use the legacy recursive boxed builder.
+/// They fail with a typed diagnostic until that representation is migrated.
+#[test]
+fn ast_builder_rejects_remaining_recursive_chains_without_overflowing() {
+    let subtraction = format!("RETURN {}", vec!["1"; 1_000].join(" - "));
+    let property = format!(
+        "RETURN n{}",
+        (0..1_000)
+            .map(|index| format!(".p{index}"))
+            .collect::<String>()
+    );
+    let labels = format!("MATCH (n:{}) RETURN n", vec!["L"; 1_000].join("|"));
+
+    assert_ast_recursion_limit(&subtraction);
+    assert_ast_recursion_limit(&property);
+    assert_ast_recursion_limit(&labels);
 }

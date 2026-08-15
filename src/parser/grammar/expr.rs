@@ -22,6 +22,14 @@ impl Prec {
 }
 
 fn expr_bp(p: &mut Parser, min_bp: Prec) {
+    if !p.enter_recursion() {
+        return;
+    }
+    expr_bp_inner(p, min_bp);
+    p.leave_recursion();
+}
+
+fn expr_bp_inner(p: &mut Parser, min_bp: Prec) {
     // Handle prefix unary operators: NOT, +, -
     if is_unary_prefix(p) {
         let op = p.current_kind();
@@ -298,6 +306,19 @@ fn parse_label_or(
     name_kind: SyntaxKind,
     dynamic_kind: SyntaxKind,
 ) {
+    if !p.enter_recursion() {
+        return;
+    }
+    parse_label_or_inner(p, static_kind, name_kind, dynamic_kind);
+    p.leave_recursion();
+}
+
+fn parse_label_or_inner(
+    p: &mut Parser,
+    static_kind: SyntaxKind,
+    name_kind: SyntaxKind,
+    dynamic_kind: SyntaxKind,
+) {
     p.start_node(SyntaxKind::LABEL_OR);
     parse_label_and(p, static_kind, name_kind, dynamic_kind);
     p.skip_trivia();
@@ -329,6 +350,19 @@ fn parse_label_and(
 }
 
 fn parse_label_not(
+    p: &mut Parser,
+    static_kind: SyntaxKind,
+    name_kind: SyntaxKind,
+    dynamic_kind: SyntaxKind,
+) {
+    if !p.enter_recursion() {
+        return;
+    }
+    parse_label_not_inner(p, static_kind, name_kind, dynamic_kind);
+    p.leave_recursion();
+}
+
+fn parse_label_not_inner(
     p: &mut Parser,
     static_kind: SyntaxKind,
     name_kind: SyntaxKind,
@@ -1765,6 +1799,14 @@ fn parse_anonymous_pattern_part(p: &mut Parser) {
 }
 
 fn parse_pattern_element(p: &mut Parser) {
+    if !p.enter_recursion() {
+        return;
+    }
+    parse_pattern_element_inner(p);
+    p.leave_recursion();
+}
+
+fn parse_pattern_element_inner(p: &mut Parser) {
     let checkpoint = p.checkpoint();
     p.start_node(SyntaxKind::PATTERN_ELEMENT);
     if p.at(SyntaxKind::L_PAREN) {
@@ -2365,6 +2407,14 @@ fn parse_call_subquery(p: &mut Parser) {
 }
 
 fn parse_regular_query_body(p: &mut Parser) {
+    if !p.enter_recursion() {
+        return;
+    }
+    parse_regular_query_body_inner(p);
+    p.leave_recursion();
+}
+
+fn parse_regular_query_body_inner(p: &mut Parser) {
     // Parse a RegularQuery: SinglePartQuery ( UNION SinglePartQuery )*
     // A SinglePartQuery is: ReadingClause* UpdatingClause?
     // Simplified: parse clauses until UNION or } or end

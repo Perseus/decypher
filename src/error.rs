@@ -163,6 +163,8 @@ pub enum ErrorKind {
     InvalidNumber { raw: String, reason: NumberReason },
     /// The input was empty.
     EmptyInput,
+    /// Parsing the input would exceed the library's bounded recursion depth.
+    RecursionLimitExceeded { phase: &'static str, limit: usize },
     /// A required clause was missing after another clause.
     MissingClause {
         clause: &'static str,
@@ -208,6 +210,10 @@ impl fmt::Display for ErrorKind {
                 write!(f, "invalid number `{}`: {}", raw, reason)
             }
             ErrorKind::EmptyInput => write!(f, "empty input"),
+            ErrorKind::RecursionLimitExceeded { phase, limit } => write!(
+                f,
+                "query nesting exceeds the {phase} recursion limit of {limit}"
+            ),
             ErrorKind::MissingClause { clause, after } => {
                 write!(f, "expected {} after `{}`", clause, after)
             }

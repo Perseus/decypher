@@ -10,6 +10,13 @@ use crate::error::{CypherError, ErrorKind, Result, Span};
 use crate::syntax::SyntaxKind;
 use crate::syntax::ast::AstNode;
 
+/// Temporary ceiling for recursive paths in the legacy boxed AST builder.
+///
+/// Logical `AND`/`OR` chains are excluded because their builder is iterative.
+/// Other flat chains stay bounded until their public representation is moved
+/// to the arena-backed expression model.
+const AST_RECURSION_LIMIT: usize = 48;
+
 // ── CST module aliases (source) ─────────────────────────────────────
 use cst_c::*;
 
@@ -70,6 +77,7 @@ fn internal(msg: &str, sp: Span) -> CypherError {
 // ── Entry point ──────────────────────────────────────────────────────
 
 pub fn build_source_file(src: SourceFile) -> Result<ast_c::Query> {
+    validate_ast_recursion(&src)?;
     let sp = span_of(src.syntax());
     let mut statements = Vec::new();
 
@@ -90,6 +98,98 @@ pub fn build_source_file(src: SourceFile) -> Result<ast_c::Query> {
         statements,
         span: sp,
     })
+}
+
+fn recursion_limit_error(node: &rowan::SyntaxNode<crate::syntax::CypherLang>) -> CypherError {
+    CypherError {
+        kind: ErrorKind::RecursionLimitExceeded {
+            phase: "AST builder",
+            limit: AST_RECURSION_LIMIT,
+        },
+        span: span_of(node),
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    }
+}
+
+/// Check the remaining recursive CST-to-AST paths with iterative walks.
+///
+/// Rowan's tree iterators do not consume one native stack frame per node. The
+/// check therefore runs before the boxed AST builder and turns inputs that
+/// would exceed its bounded recursion into a regular diagnostic.
+fn validate_ast_recursion(src: &SourceFile) -> Result<()> {
+    for node in src.syntax().descendants() {
+        let recursive_ancestor_count = node
+            .ancestors()
+            .filter(|ancestor| {
+                Expression::can_cast(ancestor.kind())
+                    || LabelExprNode::can_cast(ancestor.kind())
+                    || matches!(
+                        ancestor.kind(),
+                        SyntaxKind::PATTERN_ELEMENT
+                            | SyntaxKind::CALL_SUBQUERY_CLAUSE
+                            | SyntaxKind::UNION
+                    )
+            })
+            .take(AST_RECURSION_LIMIT + 1)
+            .count();
+        if recursive_ancestor_count > AST_RECURSION_LIMIT {
+            return Err(recursion_limit_error(&node));
+        }
+
+        if let Some(mut expression) = Expression::cast(node.clone()) {
+            let mut depth = 0;
+            loop {
+                depth += 1;
+                if depth > AST_RECURSION_LIMIT {
+                    return Err(recursion_limit_error(&node));
+                }
+                expression = match expression {
+                    Expression::BinaryExpr(binary)
+                        if !matches!(binary.op_kind(), Some(BinOp::And | BinOp::Or)) =>
+                    {
+                        let Some(lhs) = binary.lhs() else {
+                            break;
+                        };
+                        lhs
+                    }
+                    Expression::UnaryExpr(unary) => {
+                        let Some(operand) = unary.operand() else {
+                            break;
+                        };
+                        operand
+                    }
+                    Expression::Atom(Atom::PropertyLookup(property)) => {
+                        let Some(base) = property.base() else {
+                            break;
+                        };
+                        base
+                    }
+                    Expression::Atom(Atom::Parenthesized(parenthesized)) => {
+                        let Some(inner) = parenthesized.expr() else {
+                            break;
+                        };
+                        inner
+                    }
+                    _ => break,
+                };
+            }
+        }
+
+        if let Some(label) = LabelExprNode::cast(node.clone()) {
+            let item_count = match label {
+                LabelExprNode::Or(or) => or.items().take(AST_RECURSION_LIMIT + 1).count(),
+                LabelExprNode::And(and) => and.items().take(AST_RECURSION_LIMIT + 1).count(),
+                _ => 0,
+            };
+            if item_count > AST_RECURSION_LIMIT {
+                return Err(recursion_limit_error(&node));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn build_statement(stmt: Statement) -> Result<Vec<ast_c::QueryBody>> {
