@@ -157,9 +157,28 @@ fn ast_builder_rejects_remaining_recursive_chains_without_overflowing() {
             .map(|index| format!(".p{index}"))
             .collect::<String>()
     );
-    let labels = format!("MATCH (n:{}) RETURN n", vec!["L"; 1_000].join("|"));
 
     assert_ast_recursion_limit(&subtraction);
     assert_ast_recursion_limit(&property);
-    assert_ast_recursion_limit(&labels);
+}
+
+/// Label OR/AND chains use ordered operand vectors in the public AST, so
+/// printing and HIR relationship-type lowering stay stack-safe.
+#[test]
+fn public_pipeline_handles_large_label_expression() {
+    let labels = (0..1_000)
+        .map(|index| format!("L{index}"))
+        .collect::<Vec<_>>()
+        .join("|");
+    let node_query = format!("MATCH (n:{labels}) RETURN n");
+    let parsed = parse(node_query.as_str()).expect("flat label AST construction should succeed");
+    sema::analyze(&parsed).expect("semantic analysis should be stack-safe");
+    assert_eq!(parsed.to_cypher().matches('|').count(), 999);
+
+    #[cfg(feature = "hir")]
+    {
+        let relationship_query = format!("MATCH ()-[:{labels}]->() RETURN 1");
+        decypher::analyze(relationship_query.as_str())
+            .expect("relationship type lowering should be stack-safe");
+    }
 }

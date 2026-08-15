@@ -176,17 +176,6 @@ fn validate_ast_recursion(src: &SourceFile) -> Result<()> {
                 };
             }
         }
-
-        if let Some(label) = LabelExprNode::cast(node.clone()) {
-            let item_count = match label {
-                LabelExprNode::Or(or) => or.items().take(AST_RECURSION_LIMIT + 1).count(),
-                LabelExprNode::And(and) => and.items().take(AST_RECURSION_LIMIT + 1).count(),
-                _ => 0,
-            };
-            if item_count > AST_RECURSION_LIMIT {
-                return Err(recursion_limit_error(&node));
-            }
-        }
     }
 
     Ok(())
@@ -1011,52 +1000,24 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
     let sp = span_of(node.syntax());
     match node {
         LabelExprNode::Or(or) => {
-            let mut items = or.items();
-            let lhs = items
-                .next()
+            let operands = or
+                .items()
                 .map(build_label_expr_node)
-                .transpose()?
-                .ok_or_else(|| internal("missing lhs in label OR", sp))?;
-            let Some(rhs) = items.next().map(build_label_expr_node).transpose()? else {
-                return Ok(lhs);
-            };
-            let mut acc = ast_c::LabelExpression::Or {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span: sp,
-            };
-            for item in items {
-                acc = ast_c::LabelExpression::Or {
-                    lhs: Box::new(acc),
-                    rhs: Box::new(build_label_expr_node(item)?),
-                    span: sp,
-                };
+                .collect::<Result<Vec<_>>>()?;
+            if operands.len() == 1 {
+                return Ok(operands.into_iter().next().unwrap());
             }
-            Ok(acc)
+            Ok(ast_c::LabelExpression::Or { operands, span: sp })
         }
         LabelExprNode::And(and) => {
-            let mut items = and.items();
-            let lhs = items
-                .next()
+            let operands = and
+                .items()
                 .map(build_label_expr_node)
-                .transpose()?
-                .ok_or_else(|| internal("missing lhs in label AND", sp))?;
-            let Some(rhs) = items.next().map(build_label_expr_node).transpose()? else {
-                return Ok(lhs);
-            };
-            let mut acc = ast_c::LabelExpression::And {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-                span: sp,
-            };
-            for item in items {
-                acc = ast_c::LabelExpression::And {
-                    lhs: Box::new(acc),
-                    rhs: Box::new(build_label_expr_node(item)?),
-                    span: sp,
-                };
+                .collect::<Result<Vec<_>>>()?;
+            if operands.len() == 1 {
+                return Ok(operands.into_iter().next().unwrap());
             }
-            Ok(acc)
+            Ok(ast_c::LabelExpression::And { operands, span: sp })
         }
         LabelExprNode::Not(not) => Ok(ast_c::LabelExpression::Not {
             inner: Box::new(build_label_expr_node(

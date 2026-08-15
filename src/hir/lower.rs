@@ -1684,11 +1684,10 @@ impl<'cfg> LoweringContext<'cfg> {
             LabelExpression::Static(sym) => {
                 vec![self.arenas.relationship_types.intern(&sym.name, RelTypeId)]
             }
-            LabelExpression::Or { lhs, rhs, .. } => {
-                let mut types = self.lower_label_expression_to_rel_types(lhs);
-                types.extend(self.lower_label_expression_to_rel_types(rhs));
-                types
-            }
+            LabelExpression::Or { operands, .. } => operands
+                .iter()
+                .flat_map(|operand| self.lower_label_expression_to_rel_types(operand))
+                .collect(),
             LabelExpression::Dynamic { span, .. }
             | LabelExpression::And { span, .. }
             | LabelExpression::Not { span, .. }

@@ -1174,15 +1174,23 @@ impl ToCypher for LabelExpression {
                 expression.write_cypher(w)?;
                 write!(w, ")")
             }
-            LabelExpression::Or { lhs, rhs, .. } => {
-                lhs.write_cypher(w)?;
-                write!(w, "|")?;
-                rhs.write_cypher(w)
+            LabelExpression::Or { operands, .. } => {
+                for (index, operand) in operands.iter().enumerate() {
+                    if index > 0 {
+                        write!(w, "|")?;
+                    }
+                    operand.write_cypher(w)?;
+                }
+                Ok(())
             }
-            LabelExpression::And { lhs, rhs, .. } => {
-                lhs.write_cypher(w)?;
-                write!(w, "&")?;
-                rhs.write_cypher(w)
+            LabelExpression::And { operands, .. } => {
+                for (index, operand) in operands.iter().enumerate() {
+                    if index > 0 {
+                        write!(w, "&")?;
+                    }
+                    operand.write_cypher(w)?;
+                }
+                Ok(())
             }
             LabelExpression::Not { inner, .. } => {
                 write!(w, "!")?;

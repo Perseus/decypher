@@ -197,21 +197,17 @@ pub enum LabelExpression {
         /// Byte-offset span of the `$(…)` construct.
         span: Span,
     },
-    /// `lhs | rhs` — either label.
+    /// `a | b | …` — any of the labels.
     Or {
-        /// Left-hand label expression.
-        lhs: Box<LabelExpression>,
-        /// Right-hand label expression.
-        rhs: Box<LabelExpression>,
+        /// Label expressions in source order.
+        operands: Vec<LabelExpression>,
         /// Byte-offset span of the expression.
         span: Span,
     },
-    /// `lhs & rhs` — both labels.
+    /// `a & b & …` — all of the labels.
     And {
-        /// Left-hand label expression.
-        lhs: Box<LabelExpression>,
-        /// Right-hand label expression.
-        rhs: Box<LabelExpression>,
+        /// Label expressions in source order.
+        operands: Vec<LabelExpression>,
         /// Byte-offset span of the expression.
         span: Span,
     },

@@ -1363,9 +1363,10 @@ pub fn walk_label_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast LabelE
     match node {
         LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
         LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
-        LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
-            v.visit_label_expression(lhs);
-            v.visit_label_expression(rhs);
+        LabelExpression::Or { operands, .. } | LabelExpression::And { operands, .. } => {
+            for operand in operands {
+                v.visit_label_expression(operand);
+            }
         }
         LabelExpression::Not { inner, .. } | LabelExpression::Group { inner, .. } => {
             v.visit_label_expression(inner);
@@ -1964,9 +1965,10 @@ pub fn walk_label_expression_mut<V: VisitMut>(v: &mut V, node: &mut LabelExpress
     match node {
         LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
         LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
-        LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
-            v.visit_label_expression(lhs);
-            v.visit_label_expression(rhs);
+        LabelExpression::Or { operands, .. } | LabelExpression::And { operands, .. } => {
+            for operand in operands {
+                v.visit_label_expression(operand);
+            }
         }
         LabelExpression::Not { inner, .. } | LabelExpression::Group { inner, .. } => {
             v.visit_label_expression(inner);
