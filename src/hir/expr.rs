@@ -57,6 +57,13 @@ pub enum ExprKind {
         /// The right operand.
         right: ExprId,
     },
+    /// An associative logical operation with operands in source order.
+    Logical {
+        /// `AND` or `OR`.
+        op: LogicalOp,
+        /// Operand expressions.
+        operands: Vec<ExprId>,
+    },
 
     /// A function or aggregate call.
     FunctionCall {
@@ -184,6 +191,15 @@ pub enum UnaryOp {
     Not,
 }
 
+/// Associative logical operators in the HIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogicalOp {
+    /// `AND`.
+    And,
+    /// `OR`.
+    Or,
+}
+
 /// Binary infix operators in the HIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
@@ -199,10 +215,6 @@ pub enum BinaryOp {
     Modulo,
     /// `^`
     Power,
-    /// `AND`
-    And,
-    /// `OR`
-    Or,
     /// `XOR`
     Xor,
     /// `=`

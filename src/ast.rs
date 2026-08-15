@@ -18,6 +18,8 @@
 //! | [`mod@print`] | [`ToCypher`] trait for serialising AST nodes back to text |
 //! | [`visit`] | [`visit::Visit`] / [`visit::VisitMut`] traits for traversal |
 
+pub mod arena;
+mod build_arena;
 pub(crate) mod build_cst;
 pub mod clause;
 pub mod expr;

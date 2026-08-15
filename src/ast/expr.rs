@@ -116,6 +116,15 @@ pub enum Expression {
         /// Byte-offset span of the expression.
         span: Span,
     },
+    /// An associative logical operation stored as one flat operand list.
+    LogicalOp {
+        /// `AND` or `OR`.
+        op: crate::ast::arena::LogicalOperator,
+        /// Operands in source order.
+        operands: Vec<Expression>,
+        /// Byte-offset span of the expression.
+        span: Span,
+    },
     /// A unary prefix operation: `op operand`.
     UnaryOp {
         /// The operator.
@@ -227,10 +236,6 @@ pub enum BinaryOperator {
     Modulo,
     /// `^`
     Power,
-    /// `AND`
-    And,
-    /// `OR`
-    Or,
     /// `XOR`
     Xor,
 }

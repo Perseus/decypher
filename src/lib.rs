@@ -40,6 +40,7 @@
 //!
 //! [rowan]: https://docs.rs/rowan
 
+pub mod arena;
 pub mod ast;
 pub mod error;
 #[cfg(feature = "hir")]

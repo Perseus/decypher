@@ -14,9 +14,13 @@ use crate::ast::procedure::{InQueryCall, StandaloneCall};
 use crate::ast::schema::{SchemaCommand, Show, Use};
 use crate::error::Span;
 
+use super::arena::AstArenas;
+
 /// The root of a parsed Cypher source: a list of top-level statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query {
+    /// Arena storage for expression and label-expression nodes.
+    pub arenas: AstArenas,
     /// The top-level statements in the source, in order.
     pub statements: Vec<QueryBody>,
     /// Byte-offset span covering the entire source.

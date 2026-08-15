@@ -817,6 +817,19 @@ impl ToCypher for Expression {
                 write!(w, " ")?;
                 rhs.write_cypher(w)
             }
+            Expression::LogicalOp { op, operands, .. } => {
+                let mut operands = operands.iter();
+                if let Some(first) = operands.next() {
+                    first.write_cypher(w)?;
+                }
+                for operand in operands {
+                    write!(w, " ")?;
+                    op.write_cypher(w)?;
+                    write!(w, " ")?;
+                    operand.write_cypher(w)?;
+                }
+                Ok(())
+            }
             Expression::UnaryOp { op, operand, .. } => {
                 op.write_cypher(w)?;
                 operand.write_cypher(w)
@@ -997,9 +1010,16 @@ impl ToCypher for BinaryOperator {
             BinaryOperator::Divide => write!(w, "/"),
             BinaryOperator::Modulo => write!(w, "%"),
             BinaryOperator::Power => write!(w, "^"),
-            BinaryOperator::And => write!(w, "AND"),
-            BinaryOperator::Or => write!(w, "OR"),
             BinaryOperator::Xor => write!(w, "XOR"),
+        }
+    }
+}
+
+impl ToCypher for crate::ast::arena::LogicalOperator {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            Self::And => write!(w, "AND"),
+            Self::Or => write!(w, "OR"),
         }
     }
 }

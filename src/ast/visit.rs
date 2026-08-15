@@ -25,6 +25,7 @@
 //! }
 //! ```
 
+use crate::ast::arena::LogicalOperator;
 use crate::ast::clause::*;
 use crate::ast::expr::*;
 use crate::ast::names::*;
@@ -378,6 +379,7 @@ pub trait Visit<'ast> {
     fn visit_sort_direction(&mut self, _node: &'ast SortDirection) {}
     fn visit_relationship_direction(&mut self, _node: &'ast RelationshipDirection) {}
     fn visit_binary_operator(&mut self, _node: &'ast BinaryOperator) {}
+    fn visit_logical_operator(&mut self, _node: &'ast LogicalOperator) {}
     fn visit_unary_operator(&mut self, _node: &'ast UnaryOperator) {}
     fn visit_comparison_operator(&mut self, _node: &'ast ComparisonOperator) {}
     fn visit_rel_type_name(&mut self, node: &'ast RelTypeName)
@@ -1403,6 +1405,12 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
             v.visit_expression(lhs);
             v.visit_expression(rhs);
         }
+        Expression::LogicalOp { op, operands, .. } => {
+            v.visit_logical_operator(op);
+            for operand in operands {
+                v.visit_expression(operand);
+            }
+        }
         Expression::UnaryOp { op, operand, .. } => {
             v.visit_unary_operator(op);
             v.visit_expression(operand);
@@ -1994,6 +2002,11 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::BinaryOp { lhs, rhs, .. } => {
             v.visit_expression(lhs);
             v.visit_expression(rhs);
+        }
+        Expression::LogicalOp { operands, .. } => {
+            for operand in operands {
+                v.visit_expression(operand);
+            }
         }
         Expression::UnaryOp { operand, .. } => {
             v.visit_expression(operand);
